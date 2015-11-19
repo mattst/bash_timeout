@@ -1,0 +1,180 @@
+#!/bin/bash
+
+
+#
+# This is a very simple example of using bash_timeout. It uses wget to download a 200 MB file 
+# from thinkbroadband.com which has lots of test files, link below. The timeout is set low.
+#
+# http://www.thinkbroadband.com/download.html
+#
+
+
+#
+# Name:            bash_timeout
+# Description:     Bash code to incorporate into scripts to facilitate a timeout.
+# Author:          mattst <mattst@i-dig.info>
+# Location:        https://github.com/mattst/bash_timeout
+#
+#
+# bash_timeout is the bare bones code to implement a timeout in a Bash script. It is intended for
+# users to copy and paste the code into their scripts and then to insert their own code within
+# bash_timeout's logical framework.
+#
+#
+# Non-Bash shells: the code works well with other shells but note the following:
+# 
+# 1. The kill command may need modification from: kill -SIGTERM "$command_process_id" 
+#    Dash certainly does not like it, probably just kill "$command_process_id" will suffice.
+#    SIGTERM should be used to allow the program to clean up after itself before terminating.
+#    DO NOT USE SIGKILL; the process might leave sockets open, child processes, temp files, ...
+
+# 2. The call to disown may need to be removed. Disown is a Bash builtin command. Note that ZSH and
+#    KSH both also have versions of disown but neither has been tested with this code. Without the
+#    call to disown there may get unsightly terminal messages stating that the command has been
+#    killed (if the command times out). With my system default /bin/sh (which is Dash) no unsightly
+#    kill messages are shown, so the use of disown may only be necessary with Bash.
+#
+#
+# The timeout code follows this methodology:
+# 
+# Store the time in seconds and nanoseconds.
+# Run the command the timeout is required for. The command must be forked with a trailing '&'.
+# Store the command's process ID.
+# Repeatedly check to see if the command has completed or if the timeout has been exceeded.
+# Optionally a period of sleep can be used between these checks.
+# If the command did not finish within the timeout period, kill the command.
+# 
+
+
+# The timeout in seconds. Floating point numbers are permitted. e.g. "1.5", "0.75", "600".
+timeout="1.5"
+
+# An optional sleep interval in seconds between the checks to see if the timeout has been exceeded.
+sleep_interval="0.1"
+
+# On my Intel i7-4790S CPU approximately 110 checks are made per second if sleep is not used. The
+# GNU coreutils implementation of sleep allows the use of floating point numbers including the use
+# of values of less than a second. To limit the number of checks per/sec to 10 a value of 0.1 should
+# be entered. Note that the POSIX requirement for sleep is to use "a non-negative decimal integer",
+# so the values sleep_interval can be set to is dependant on the version of sleep on the target OS.
+# Since 2 processes are required for each check it would be prudent to set a sleep interval for all
+# cases except for very low timeouts and those requiring high precision. Note that if GNU sleep is
+# available then a sleep interval of 0.05 seconds (50 milliseconds) would allow precision in the
+# region of 1/20th of a second while limiting the number of checks to a maximum of 20 per/sec.
+
+
+run_command_with_timeout()
+{
+    # Note: %s seconds, %N nanoseconds.
+    local time_start=$(date +%s.%N)
+
+    # Replace command_to_run with the command that the timeout is required for. It is essential
+    # that the command is forked (the trailing '&') so that the command does not block execution.
+    # Due to the forking it is not possible to store the command's exit status value with $?.
+    # You may want to use a --quiet option and/or redirect output to files or /dev/null.
+    # 
+    # command_to_run --options &
+    # local command_process_id="$!"
+
+    # Example command to run, download a 200 MB file. The download_file_path is the PWD.
+
+    download_file_url="http://download.thinkbroadband.com/200MB.zip"
+    download_file_path="./200MB.fake.zip"
+
+    wget --quiet --tries=1 --output-document="$download_file_path" "$download_file_url" &
+    local command_process_id="$!"
+
+    echo "The command has been started."
+
+    # Using disown to remove command's job from the shell's active jobs table prevents an unsightly
+    # Bash terminal message if the command times out and its process is killed. Disown is a builtin
+    # command in Bash. If you are using another shell the disown line will need to be removed,
+    # although ZSH and KSH have versions of disown neither has been tested with this code. With my
+    # system default /bin/sh (which is Dash) no unsightly kill messages are shown.
+    disown "$command_process_id"
+
+    # Handle the timeout.
+
+    local is_command_done="FALSE"
+    local is_command_timed_out="FALSE"
+
+    local time_now
+    local process_grep_ret_val
+    local bc_exp_check_for_timeout
+    local bc_exp_check_for_timeout_ret_val
+
+    local check_number="0"
+
+    while [ "$is_command_done" = "FALSE" -a "$is_command_timed_out" = "FALSE" ]; do
+
+        # Sleep for sleep_interval seconds, remove if not required.
+        if [ "$sleep_interval" != "0" ]; then
+            echo "Sleeping for: $sleep_interval seconds"
+            sleep "$sleep_interval"
+        fi
+
+        # Store whether the command's process is still listed by ps.
+        # Grep's -q option is quiet (--quiet is not specified by POSIX).
+        ps -A | grep -q "$command_process_id"
+        process_grep_ret_val="$?"
+
+        # If the command's process has finished grep will not match the process id.
+        if [ "$process_grep_ret_val" -ne "0" ]; then
+            is_command_done="TRUE"
+
+        # If the command's process has not finished grep will match the process id.
+        else
+            let 'check_number = check_number + 1'
+            echo "Check number $check_number to see if the timeout has been exceeded."
+
+            # Note: %s seconds, %N nanoseconds.
+            time_now=$(date +%s.%N)
+
+            # Use bc to check if the timeout has been exceeded.
+
+            # Do not use 'else' in the bc expression, it is not in POSIX bc (only in GNU bc).
+            # [The bc expression will return 0 if the timeout has been exceeded otherwise "".]
+            bc_exp_check_for_timeout="if (($time_now - $time_start) > $timeout) 0"
+            bc_exp_check_for_timeout_ret_val=$(echo "$bc_exp_check_for_timeout" | bc -l)
+
+            # The timeout has been exceeded. [Do not use -eq, most of the time it will be "".]
+            if [ "$bc_exp_check_for_timeout_ret_val" = "0" ]; then
+                is_command_timed_out="TRUE"
+            fi
+        fi
+    done
+
+    # If the command completed successfully without the timeout being reached.
+    if [ "$is_command_done" = "TRUE" ]; then
+
+        # Do something...
+        echo "The command has successfully completed."
+
+    # If the command did not finish, the timeout was reached.
+    elif [ "$is_command_timed_out" = "TRUE" ]; then
+
+        # Kill the command's process using SIGTERM which will allow the program to clean up
+        # after itself before terminating. DO NOT USE SIGKILL; the command might leave sockets
+        # open, child processes, temp files, etc..
+
+        kill -SIGTERM "$command_process_id"
+
+        # Do something...
+        echo "The command has timed out and its process has been sent SIGTERM."
+    fi
+
+    # Calculate the duration to 3 decimal places.
+    local time_stop=$(date +%s.%N)
+    local time_taken=$(printf "%.3F" $(echo "$time_stop - $time_start" | bc -l))
+
+    echo "The timeout was set to: $timeout seconds"
+    echo "The time taken was: $time_taken seconds"
+}
+
+# Uncomment the line below to run. Make sure command_to_run, timeout and sleep_interval are set.
+run_command_with_timeout
+
+echo "The script has finished."
+#
+# End of script.
+#
