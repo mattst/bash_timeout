@@ -1,9 +1,11 @@
 
-### bash_timeout - bash code to add to scripts to facilitate a timeout
+### bash_timeout - bash code to use in scripts to facilitate a timeout
 
-bash\_timeout is the bare bones code to implement a timeout in a Bash script. It is intended for users to copy and paste the code into their scripts and then to insert their own code within bash_timeout's logical framework.
+bash\_timeout is the code needed to implement a timeout in a Bash script. It is intended for users to copy and paste the code into their scripts and then to insert their own code within bash_timeout's logical framework.
 
 The code works well with non-Bash shells. There are some comments in the `bash_timeout` file which explain that the `disown` line may need to be removed and that the `kill` command may need minor modification depending on which version of `kill` the shell uses.
+
+The bash\_timeout code allows timeouts to be used with quite a high level of precision should your needs require it. At the extreme it can reliably handle timeout accuracy to within 10-20 milliseconds.
 
 The timeout code follows this methodology:
 
