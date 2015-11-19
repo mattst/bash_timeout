@@ -1,5 +1,5 @@
 
-### bash_timeout - code to add to scripts to facilitate a timeout.
+### bash_timeout - bash code to add to scripts to facilitate a timeout
 
 bash\_timeout is the bare bones code to implement a timeout in a Bash script. It is intended for users to copy and paste the code into their scripts and then to insert their own code within bash_timeout's logical framework.
 
@@ -13,5 +13,7 @@ The timeout code follows this methodology:
 - Repeatedly check to see if the command has completed or if the timeout has been exceeded.
 - Optionally a period of sleep can be used between these checks.
 - If the command did not finish within the timeout period, kill the command.
+
+The `bash_timeout_example` file demonstrates its use.
 
 I hope this helps.
